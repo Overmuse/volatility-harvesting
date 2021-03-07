@@ -1,0 +1,23 @@
+[package]
+name = "volatility-harvesting"
+version = "0.1.0"
+authors = ["RollenRegistratorBot <rollenseb@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+alpaca = {version = "0.3", git = "ssh://git@github.com/Overmuse/alpaca"}
+anyhow = "1.0.32"
+dotenv = "0.15"
+env_logger = "0.7.1"
+futures = "0.3.0"
+log = "0.4.8"
+polygon = {version = "0.1", git = "ssh://git@github.com/Overmuse/polygon", branch = "main", default-features = false, features = ["ws"]}
+rand = "0.7.3"
+rdkafka = { version = "0.25", features = ["ssl-vendored"] }
+serde = "1.0"
+serde_json = "1.0.55"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "time"] }
+tokio-stream = "0.1"
+uuid = "0.8.1"
