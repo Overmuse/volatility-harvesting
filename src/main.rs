@@ -74,7 +74,7 @@ async fn run_async_processor(initial_equity: f64) -> Result<()> {
             async move {
                 producer
                     .send(
-                        FutureRecord::to(&output_topic).key(&msg.symbol).payload(
+                        FutureRecord::to(&output_topic).key(&msg.ticker).payload(
                             &serde_json::to_string(&msg).expect("failed to serialize order intent"),
                         ),
                         Duration::from_secs(0),
