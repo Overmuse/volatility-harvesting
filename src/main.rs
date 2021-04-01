@@ -28,20 +28,22 @@ async fn run_async_processor(initial_equity: f64) -> Result<()> {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("group.id", &env::var("GROUP_ID")?)
         .set("bootstrap.servers", &env::var("BOOTSTRAP_SERVERS")?)
-        .set("security.protocol", "SASL_SSL")
-        .set("sasl.mechanisms", "PLAIN")
-        .set("sasl.username", &env::var("SASL_USERNAME")?)
-        .set("sasl.password", &env::var("SASL_PASSWORD")?)
+        .set("security.protocol", "PLAINTEXT")
+        //.set("security.protocol", "SASL_SSL")
+        //.set("sasl.mechanisms", "PLAIN")
+        //.set("sasl.username", &env::var("SASL_USERNAME")?)
+        //.set("sasl.password", &env::var("SASL_PASSWORD")?)
         .set("enable.ssl.certificate.verification", "false")
         .create()
         .context("Failed to create Kafka consumer")?;
 
     let producer: FutureProducer = ClientConfig::new()
         .set("bootstrap.servers", &env::var("BOOTSTRAP_SERVERS")?)
-        .set("security.protocol", "SASL_SSL")
-        .set("sasl.mechanisms", "PLAIN")
-        .set("sasl.username", &env::var("SASL_USERNAME")?)
-        .set("sasl.password", &env::var("SASL_PASSWORD")?)
+        .set("security.protocol", "PLAINTEXT")
+        //.set("security.protocol", "SASL_SSL")
+        //.set("sasl.mechanisms", "PLAIN")
+        //.set("sasl.username", &env::var("SASL_USERNAME")?)
+        //.set("sasl.password", &env::var("SASL_PASSWORD")?)
         .set("enable.ssl.certificate.verification", "false")
         .set("message.timeout.ms", "5000")
         .create()
@@ -55,11 +57,18 @@ async fn run_async_processor(initial_equity: f64) -> Result<()> {
         .subscribe(&input_topics)
         .context("Can't subscribe to specified topic")?;
 
-    let algo = Algorithm::new(initial_equity);
+    let algo = Algorithm::new(initial_equity, Duration::from_secs(5 * 60));
     let (sender, mut receiver) = algo.split();
 
     tokio::spawn(async move {
-        let mut stream = consumer.stream().map(handle_message);
+        let latch_message = async {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            Ok(volatility_harvesting::Message::Latch)
+        };
+        tokio::pin!(latch_message);
+        let latch_stream = futures::stream::once(latch_message);
+        let data_stream = consumer.stream().map(handle_message);
+        let mut stream = futures::stream::select(latch_stream, data_stream);
         receiver
             .send_all(&mut stream)
             .await

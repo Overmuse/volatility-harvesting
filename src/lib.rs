@@ -1,19 +1,18 @@
+use chrono::Utc;
 use core::pin::Pin;
 use futures::prelude::*;
 use futures::task::{Context, Poll, Waker};
 use log::{debug, info, trace};
-use polygon::ws::PolygonMessage;
+use order_manager::PositionIntent;
+use polygon::ws::{PolygonMessage, Trade};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
-
-#[derive(PartialEq, Debug, Serialize)]
-pub struct Position {
-    pub ticker: String,
-    pub shares: f64,
-}
+use std::time::Duration;
+use tokio::time::{interval, Interval};
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum Message {
     Polygon(PolygonMessage),
     Latch,
@@ -21,17 +20,20 @@ pub enum Message {
 
 pub struct Sender {
     wakers: Arc<Mutex<Vec<Option<Waker>>>>,
-    outbox: Arc<Mutex<VecDeque<Position>>>,
+    outbox: Arc<Mutex<VecDeque<PositionIntent>>>,
 }
 
 impl Sender {
-    fn new(wakers: Arc<Mutex<Vec<Option<Waker>>>>, outbox: Arc<Mutex<VecDeque<Position>>>) -> Self {
+    fn new(
+        wakers: Arc<Mutex<Vec<Option<Waker>>>>,
+        outbox: Arc<Mutex<VecDeque<PositionIntent>>>,
+    ) -> Self {
         Self { outbox, wakers }
     }
 }
 
 impl Stream for Sender {
-    type Item = Position;
+    type Item = PositionIntent;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut outbox = self.outbox.lock().expect("Failed to lock Mutex");
@@ -43,8 +45,9 @@ impl Stream for Sender {
                 .push(Some(cx.waker().clone()));
             Poll::Pending
         } else {
-            debug!("Message available");
-            Poll::Ready(outbox.pop_front())
+            let msg = outbox.pop_front();
+            debug!("Message available: {:?}", msg);
+            Poll::Ready(msg)
         }
     }
 }
@@ -57,14 +60,16 @@ pub struct Receiver {
     prev_prices: BTreeMap<String, f64>,
     current_prices: BTreeMap<String, f64>,
     wakers: Arc<Mutex<Vec<Option<Waker>>>>,
-    sender_outbox: Arc<Mutex<VecDeque<Position>>>,
+    sender_outbox: Arc<Mutex<VecDeque<PositionIntent>>>,
+    interval: Interval,
 }
 
 impl Receiver {
     fn new(
         starting_cash: f64,
         wakers: Arc<Mutex<Vec<Option<Waker>>>>,
-        sender_outbox: Arc<Mutex<VecDeque<Position>>>,
+        sender_outbox: Arc<Mutex<VecDeque<PositionIntent>>>,
+        batch_time: Duration,
     ) -> Self {
         Self {
             starting_cash,
@@ -75,6 +80,7 @@ impl Receiver {
             current_prices: BTreeMap::new(),
             sender_outbox,
             wakers,
+            interval: interval(batch_time),
         }
     }
 }
@@ -90,7 +96,7 @@ impl Sink<Message> for Receiver {
         debug!("Item received: {:?}", &item);
         match item {
             Message::Polygon(msg) => {
-                if let PolygonMessage::Trade { symbol, price, .. } = msg {
+                if let PolygonMessage::Trade(Trade { symbol, price, .. }) = msg {
                     self.update_price(&symbol, price)
                 }
             }
@@ -99,7 +105,27 @@ impl Sink<Message> for Receiver {
         Ok(())
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        if let Poll::Ready(_) = self.interval.poll_tick(cx) {
+            let desired_positions = self.desired_positions();
+            let mut outbox = self
+                .sender_outbox
+                .lock()
+                .expect("Encountered poisoned lock");
+            for position in desired_positions {
+                outbox.push_back(position);
+            }
+            for waker in self
+                .wakers
+                .lock()
+                .expect("Failed to acquire Mutex")
+                .iter_mut()
+            {
+                if let Some(waker) = waker.take() {
+                    waker.wake()
+                }
+            }
+        }
         Poll::Ready(Ok(()))
     }
 
@@ -125,30 +151,13 @@ impl Receiver {
                 debug!("Virtual cash: {}", self.virtual_cash);
             }
         }
-        let positions = self.desired_positions();
-        for position in positions {
-            self.sender_outbox
-                .lock()
-                .expect("Failed to acquire Mutex")
-                .push_back(position);
-            for waker in self
-                .wakers
-                .lock()
-                .expect("Failed to acquire Mutex")
-                .iter_mut()
-            {
-                if let Some(waker) = waker.take() {
-                    waker.wake()
-                }
-            }
-        }
     }
 
     fn num_tickers(&self) -> usize {
         self.current_prices.len()
     }
 
-    fn desired_positions(&self) -> Vec<Position> {
+    fn desired_positions(&self) -> Vec<PositionIntent> {
         let num_tickers = self.num_tickers();
         self.current_prices
             .iter()
@@ -157,9 +166,11 @@ impl Receiver {
                 let total = self.virtual_cash / num_tickers as f64
                     - (p * self.starting_cash) / (p0 * num_tickers as f64);
                 debug!("Ticker: {}. Total desired: {}", t, total);
-                Position {
+                PositionIntent {
                     ticker: t.clone(),
-                    shares: total,
+                    strategy: "volatility-harvesting".into(),
+                    qty: total as i32,
+                    timestamp: Utc::now(),
                 }
             })
             .collect()
@@ -171,11 +182,11 @@ pub struct Algorithm {
 }
 
 impl Algorithm {
-    pub fn new(cash: f64) -> Self {
+    pub fn new(cash: f64, batch_time: Duration) -> Self {
         let wakers = Arc::new(Mutex::new(Vec::new()));
         let outbox = Arc::new(Mutex::new(VecDeque::new()));
         let sender = Sender::new(Arc::clone(&wakers), Arc::clone(&outbox));
-        let receiver = Receiver::new(cash, wakers, outbox);
+        let receiver = Receiver::new(cash, wakers, outbox, batch_time);
         Self { sender, receiver }
     }
 

@@ -26,7 +26,7 @@ fn random_trade() -> PolygonMessage {
 #[tokio::test]
 async fn main() {
     let _ = env_logger::try_init();
-    let algo = Algorithm::new(1000000.0);
+    let algo = Algorithm::new(1000000.0, Duration::from_secs(5));
     let (sender, mut receiver) = algo.split();
     tokio::spawn(async move {
         let interval_fut = interval(Duration::from_millis(100));
