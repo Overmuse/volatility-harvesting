@@ -11,6 +11,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::{interval, Interval};
 
+mod settings;
+pub use settings::Settings;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Message {

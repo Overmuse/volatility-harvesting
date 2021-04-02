@@ -1,17 +1,12 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use dotenv::dotenv;
 use futures::prelude::*;
+use kafka_settings::{consumer, producer};
 use log::info;
-use rdkafka::{
-    config::ClientConfig,
-    consumer::{stream_consumer::StreamConsumer, Consumer},
-    message::BorrowedMessage,
-    producer::{FutureProducer, FutureRecord},
-    Message,
-};
+use rdkafka::{message::BorrowedMessage, producer::FutureRecord, Message};
 use std::env;
 use std::time::Duration;
-use volatility_harvesting::Algorithm;
+use volatility_harvesting::{Algorithm, Settings};
 
 // Couldn't figure out how to structure this as a closure due to the lifetime.
 fn handle_message(
@@ -24,40 +19,12 @@ fn handle_message(
     )
 }
 
-async fn run_async_processor(initial_equity: f64) -> Result<()> {
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("group.id", &env::var("GROUP_ID")?)
-        .set("bootstrap.servers", &env::var("BOOTSTRAP_SERVERS")?)
-        .set("security.protocol", "PLAINTEXT")
-        //.set("security.protocol", "SASL_SSL")
-        //.set("sasl.mechanisms", "PLAIN")
-        //.set("sasl.username", &env::var("SASL_USERNAME")?)
-        //.set("sasl.password", &env::var("SASL_PASSWORD")?)
-        .set("enable.ssl.certificate.verification", "false")
-        .create()
-        .context("Failed to create Kafka consumer")?;
-
-    let producer: FutureProducer = ClientConfig::new()
-        .set("bootstrap.servers", &env::var("BOOTSTRAP_SERVERS")?)
-        .set("security.protocol", "PLAINTEXT")
-        //.set("security.protocol", "SASL_SSL")
-        //.set("sasl.mechanisms", "PLAIN")
-        //.set("sasl.username", &env::var("SASL_USERNAME")?)
-        //.set("sasl.password", &env::var("SASL_PASSWORD")?)
-        .set("enable.ssl.certificate.verification", "false")
-        .set("message.timeout.ms", "5000")
-        .create()
-        .context("Failed to create Kafka producer")?;
-
-    let input_topics = env::var("INPUT_TOPICS")?;
-    let input_topics: Vec<&str> = input_topics.split(',').collect();
+async fn run_async_processor(settings: Settings, initial_equity: f64) -> Result<()> {
+    let consumer = consumer(&settings.kafka)?;
+    let producer = producer(&settings.kafka)?;
     let output_topic = env::var("OUTPUT_TOPIC")?;
 
-    consumer
-        .subscribe(&input_topics)
-        .context("Can't subscribe to specified topic")?;
-
-    let algo = Algorithm::new(initial_equity, Duration::from_secs(5 * 60));
+    let algo = Algorithm::new(initial_equity, Duration::from_secs(90));
     let (sender, mut receiver) = algo.split();
 
     tokio::spawn(async move {
@@ -100,8 +67,9 @@ async fn run_async_processor(initial_equity: f64) -> Result<()> {
 async fn main() -> Result<()> {
     let _ = dotenv();
     env_logger::builder().format_timestamp_micros().init();
+    let settings = Settings::new()?;
     let initial_equity = 1_000_000.0;
     info!("Starting strategy");
 
-    run_async_processor(initial_equity).await
+    run_async_processor(settings, initial_equity).await
 }
