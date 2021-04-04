@@ -117,7 +117,7 @@ impl Sink<Message> for Receiver {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if let Poll::Ready(_) = self.interval.poll_tick(cx) {
+        if self.interval.poll_tick(cx).is_ready() {
             let desired_positions = self.desired_positions();
             let mut outbox = self
                 .sender_outbox
