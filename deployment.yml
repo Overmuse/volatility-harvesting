@@ -1,12 +1,11 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: volatility-harvesting
+  name: volatility-harvesting-cm
 data:
-  bootstrap_servers: "pkc-ep9mm.us-east-2.aws.confluent.cloud:9092"
-  group_id: "volatility-harvesting"
-  input_topic: "trades,overmuse-trades"
-  output_topic: "intended-trades"
+  KAFKA__GROUP_ID: volatility-harvesting
+  KAFKA__INPUT_TOPICS: trades,overmuse-trades
+  RUST_LOG: debug
 
 ---
 apiVersion: apps/v1
@@ -26,40 +25,10 @@ spec:
       containers:
       - name: volatility-harvesting
         image: 799439856592.dkr.ecr.us-east-1.amazonaws.com/volatility-harvesting:{IMAGE_TAG}
-        env:
-        - name: SASL_USERNAME
-          valueFrom:
-            secretKeyRef:
-              name: kafka
-              key: SASL_USERNAME
-        - name: SASL_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: kafka
-              key: SASL_PASSWORD
-        - name: BOOTSTRAP_SERVERS
-          valueFrom:
-            configMapKeyRef:
-              name: volatility-harvesting
-              key: bootstrap_servers
-        - name: GROUP_ID
-          valueFrom:
-            configMapKeyRef:
-              name: volatility-harvesting
-              key: group_id
-        - name: INPUT_TOPICS
-          valueFrom:
-            configMapKeyRef:
-              name: volatility-harvesting
-              key: input_topics
-        - name: OUTPUT_TOPIC
-          valueFrom:
-            configMapKeyRef:
-              name: volatility-harvesting
-              key: output_topic
-        - name: SECURITY_PROTOCOL
-          value: "SASL_SSL"
-        - name: SASL_MECHANISMS
-          value: "PLAIN"
-        - name: RUST_LOG
-          value: "debug"
+        envFrom:
+        - secretRef:
+            name: kafka
+        - configMapRef:
+            name: volatility-harvesting-cm
+        - configMapRef:
+            name: kafka-config-map

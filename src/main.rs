@@ -1,65 +1,39 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use dotenv::dotenv;
 use futures::prelude::*;
+use kafka_settings::{consumer, producer};
 use log::info;
-use rdkafka::{
-    config::ClientConfig,
-    consumer::{stream_consumer::StreamConsumer, Consumer},
-    message::BorrowedMessage,
-    producer::{FutureProducer, FutureRecord},
-    Message,
-};
-use std::env;
+use rdkafka::{message::BorrowedMessage, producer::FutureRecord, Message};
 use std::time::Duration;
-use volatility_harvesting::Algorithm;
+use volatility_harvesting::{Algorithm, Settings};
 
 // Couldn't figure out how to structure this as a closure due to the lifetime.
 fn handle_message(
     msg: rdkafka::error::KafkaResult<BorrowedMessage<'_>>,
-) -> Result<volatility_harvesting::Message, String> {
-    let msg = msg.expect("Got error from Kafka").detach();
+) -> Result<volatility_harvesting::Message> {
+    let msg = msg?;
     Ok(
-        serde_json::from_slice(msg.payload().expect("Failed to get payload"))
+        serde_json::from_slice(msg.payload().expect("Empty payload received"))
             .expect("Failed to deserialize message"),
     )
 }
 
-async fn run_async_processor(initial_equity: f64) -> Result<()> {
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("group.id", &env::var("GROUP_ID")?)
-        .set("bootstrap.servers", &env::var("BOOTSTRAP_SERVERS")?)
-        .set("security.protocol", "SASL_SSL")
-        .set("sasl.mechanisms", "PLAIN")
-        .set("sasl.username", &env::var("SASL_USERNAME")?)
-        .set("sasl.password", &env::var("SASL_PASSWORD")?)
-        .set("enable.ssl.certificate.verification", "false")
-        .create()
-        .context("Failed to create Kafka consumer")?;
+async fn run_async_processor(settings: Settings, initial_equity: f64) -> Result<()> {
+    let consumer = consumer(&settings.kafka)?;
+    let producer = producer(&settings.kafka)?;
 
-    let producer: FutureProducer = ClientConfig::new()
-        .set("bootstrap.servers", &env::var("BOOTSTRAP_SERVERS")?)
-        .set("security.protocol", "SASL_SSL")
-        .set("sasl.mechanisms", "PLAIN")
-        .set("sasl.username", &env::var("SASL_USERNAME")?)
-        .set("sasl.password", &env::var("SASL_PASSWORD")?)
-        .set("enable.ssl.certificate.verification", "false")
-        .set("message.timeout.ms", "5000")
-        .create()
-        .context("Failed to create Kafka producer")?;
-
-    let input_topics = env::var("INPUT_TOPICS")?;
-    let input_topics: Vec<&str> = input_topics.split(',').collect();
-    let output_topic = env::var("OUTPUT_TOPIC")?;
-
-    consumer
-        .subscribe(&input_topics)
-        .context("Can't subscribe to specified topic")?;
-
-    let algo = Algorithm::new(initial_equity);
+    let algo = Algorithm::new(initial_equity, Duration::from_secs(90));
     let (sender, mut receiver) = algo.split();
 
     tokio::spawn(async move {
-        let mut stream = consumer.stream().map(handle_message);
+        let latch_message = async {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            Ok(volatility_harvesting::Message::Latch)
+        };
+        tokio::pin!(latch_message);
+        let latch_stream = futures::stream::once(latch_message);
+        let data_stream = consumer.stream().map(handle_message);
+        let mut stream = futures::stream::select(latch_stream, data_stream);
         receiver
             .send_all(&mut stream)
             .await
@@ -69,14 +43,17 @@ async fn run_async_processor(initial_equity: f64) -> Result<()> {
     sender
         .for_each(|msg| {
             let producer = producer.clone();
-            let output_topic = output_topic.clone();
 
             async move {
                 producer
                     .send(
-                        FutureRecord::to(&output_topic).key(&msg.symbol).payload(
-                            &serde_json::to_string(&msg).expect("failed to serialize order intent"),
-                        ),
+                        // TODO: Make this part of settings
+                        FutureRecord::to("position-intents")
+                            .key(&msg.ticker)
+                            .payload(
+                                &serde_json::to_string(&msg)
+                                    .expect("failed to serialize order intent"),
+                            ),
                         Duration::from_secs(0),
                     )
                     .await
@@ -91,8 +68,9 @@ async fn run_async_processor(initial_equity: f64) -> Result<()> {
 async fn main() -> Result<()> {
     let _ = dotenv();
     env_logger::builder().format_timestamp_micros().init();
+    let settings = Settings::new()?;
     let initial_equity = 1_000_000.0;
     info!("Starting strategy");
 
-    run_async_processor(initial_equity).await
+    run_async_processor(settings, initial_equity).await
 }
