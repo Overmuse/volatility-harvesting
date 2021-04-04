@@ -22,11 +22,11 @@ COPY . .
 # Copy over the cached dependencies
 COPY --from=cacher /volatility-harvesting/target target
 COPY --from=cacher /usr/local/cargo /usr/local/cargo
-RUN --mount=type=ssh cargo build --release --bin volatility_harvesting
+RUN --mount=type=ssh cargo build --release --bin volatility-harvesting
 
 FROM debian:buster-slim as runtime
 WORKDIR volatility-harvesting
-COPY --from=builder /volatility-harvesting/target/release/volatility_harvesting /usr/local/bin
+COPY --from=builder /volatility-harvesting/target/release/volatility-harvesting /usr/local/bin
 ENV RUST_LOG=volatility_harvesting=debug
 RUN apt-get update && apt-get -y install ca-certificates libssl-dev && rm -rf /var/lib/apt/lists/*
-ENTRYPOINT ["/usr/local/bin/volatility_harvesting"]
+ENTRYPOINT ["/usr/local/bin/volatility-harvesting"]
