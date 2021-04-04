@@ -11,11 +11,9 @@ use volatility_harvesting::{Algorithm, Settings};
 fn handle_message(
     msg: rdkafka::error::KafkaResult<BorrowedMessage<'_>>,
 ) -> Result<volatility_harvesting::Message, String> {
-    let msg = msg.expect("Got error from Kafka").detach();
-    Ok(
-        serde_json::from_slice(msg.payload().expect("Failed to get payload"))
-            .expect("Failed to deserialize message"),
-    )
+    let payload = msg?.payload();
+    Ok(serde_json::from_slice(msg.expect("Empty payload received"))
+        .expect("Failed to deserialize message"))
 }
 
 async fn run_async_processor(settings: Settings, initial_equity: f64) -> Result<()> {
