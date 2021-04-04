@@ -4,7 +4,6 @@ use futures::prelude::*;
 use kafka_settings::{consumer, producer};
 use log::info;
 use rdkafka::{message::BorrowedMessage, producer::FutureRecord, Message};
-use std::env;
 use std::time::Duration;
 use volatility_harvesting::{Algorithm, Settings};
 
@@ -22,7 +21,6 @@ fn handle_message(
 async fn run_async_processor(settings: Settings, initial_equity: f64) -> Result<()> {
     let consumer = consumer(&settings.kafka)?;
     let producer = producer(&settings.kafka)?;
-    let output_topic = env::var("OUTPUT_TOPIC")?;
 
     let algo = Algorithm::new(initial_equity, Duration::from_secs(90));
     let (sender, mut receiver) = algo.split();
@@ -45,14 +43,17 @@ async fn run_async_processor(settings: Settings, initial_equity: f64) -> Result<
     sender
         .for_each(|msg| {
             let producer = producer.clone();
-            let output_topic = output_topic.clone();
 
             async move {
                 producer
                     .send(
-                        FutureRecord::to(&output_topic).key(&msg.ticker).payload(
-                            &serde_json::to_string(&msg).expect("failed to serialize order intent"),
-                        ),
+                        // TODO: Make this part of settings
+                        FutureRecord::to("position-intents")
+                            .key(&msg.ticker)
+                            .payload(
+                                &serde_json::to_string(&msg)
+                                    .expect("failed to serialize order intent"),
+                            ),
                         Duration::from_secs(0),
                     )
                     .await

@@ -1,9 +1,8 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use core::pin::Pin;
 use futures::prelude::*;
 use futures::task::{Context, Poll, Waker};
 use log::{debug, info, trace};
-use order_manager::PositionIntent;
 use polygon::ws::{PolygonMessage, Trade};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
@@ -19,6 +18,15 @@ pub use settings::Settings;
 pub enum Message {
     Polygon(PolygonMessage),
     Latch,
+}
+
+// TODO: Define this struct in some shared schema registry
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PositionIntent {
+    pub strategy: String,
+    pub timestamp: DateTime<Utc>,
+    pub ticker: String,
+    pub qty: i32,
 }
 
 pub struct Sender {
