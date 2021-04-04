@@ -10,10 +10,12 @@ use volatility_harvesting::{Algorithm, Settings};
 // Couldn't figure out how to structure this as a closure due to the lifetime.
 fn handle_message(
     msg: rdkafka::error::KafkaResult<BorrowedMessage<'_>>,
-) -> Result<volatility_harvesting::Message, String> {
-    let payload = msg?.payload();
-    Ok(serde_json::from_slice(msg.expect("Empty payload received"))
-        .expect("Failed to deserialize message"))
+) -> Result<volatility_harvesting::Message> {
+    let msg = msg?;
+    Ok(
+        serde_json::from_slice(msg.payload().expect("Empty payload received"))
+            .expect("Failed to deserialize message"),
+    )
 }
 
 async fn run_async_processor(settings: Settings, initial_equity: f64) -> Result<()> {

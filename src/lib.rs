@@ -1,3 +1,4 @@
+use anyhow::Error;
 use chrono::{DateTime, Utc};
 use core::pin::Pin;
 use futures::prelude::*;
@@ -97,7 +98,7 @@ impl Receiver {
 }
 
 impl Sink<Message> for Receiver {
-    type Error = String;
+    type Error = Error;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
