@@ -18,11 +18,15 @@ fn handle_message(
     )
 }
 
-async fn run_async_processor(settings: Settings, initial_equity: f64) -> Result<()> {
+async fn run_async_processor(settings: Settings) -> Result<()> {
     let consumer = consumer(&settings.kafka)?;
     let producer = producer(&settings.kafka)?;
 
-    let algo = Algorithm::new(initial_equity, Duration::from_secs(90));
+    let algo = Algorithm::new(
+        settings.app.initial_equity,
+        settings.app.internal_leverage,
+        Duration::from_secs(settings.app.batch_seconds),
+    );
     let (sender, mut receiver) = algo.split();
 
     tokio::spawn(async move {
@@ -69,8 +73,7 @@ async fn main() -> Result<()> {
     let _ = dotenv();
     env_logger::builder().format_timestamp_micros().init();
     let settings = Settings::new()?;
-    let initial_equity = 1_000_000.0;
     info!("Starting strategy");
 
-    run_async_processor(settings, initial_equity).await
+    run_async_processor(settings).await
 }

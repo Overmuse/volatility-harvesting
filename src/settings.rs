@@ -3,7 +3,15 @@ use kafka_settings::KafkaSettings;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+pub struct AppSettings {
+    pub initial_equity: f64,
+    pub internal_leverage: f64,
+    pub batch_seconds: u64,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Settings {
+    pub app: AppSettings,
     pub kafka: KafkaSettings,
 }
 

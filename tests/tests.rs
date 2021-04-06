@@ -27,7 +27,7 @@ fn random_trade() -> PolygonMessage {
 async fn main() {
     // TODO: Break infinite loop
     let _ = env_logger::try_init();
-    let algo = Algorithm::new(1000000.0, Duration::from_millis(200));
+    let algo = Algorithm::new(1000000.0, 1.0, Duration::from_millis(200));
     let (sender, mut receiver) = algo.split();
     tokio::spawn(async move {
         let interval_fut = interval(Duration::from_millis(100));

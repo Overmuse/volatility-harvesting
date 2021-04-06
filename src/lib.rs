@@ -67,6 +67,7 @@ impl Stream for Sender {
 pub struct Receiver {
     starting_cash: f64,
     virtual_cash: f64,
+    leverage: f64,
     latched: bool,
     start_prices: BTreeMap<String, f64>,
     prev_prices: BTreeMap<String, f64>,
@@ -79,6 +80,7 @@ pub struct Receiver {
 impl Receiver {
     fn new(
         starting_cash: f64,
+        leverage: f64,
         wakers: Arc<Mutex<Vec<Option<Waker>>>>,
         sender_outbox: Arc<Mutex<VecDeque<PositionIntent>>>,
         batch_time: Duration,
@@ -86,6 +88,7 @@ impl Receiver {
         Self {
             starting_cash,
             virtual_cash: starting_cash,
+            leverage,
             latched: false,
             start_prices: BTreeMap::new(),
             prev_prices: BTreeMap::new(),
@@ -177,11 +180,12 @@ impl Receiver {
                 let p0 = self.start_prices.get(t).unwrap_or(p);
                 let total = self.virtual_cash / num_tickers as f64
                     - (p * self.starting_cash) / (p0 * num_tickers as f64);
+                let shares = self.leverage * total / *p as f64;
                 debug!("Ticker: {}. Total desired: {}", t, total);
                 PositionIntent {
                     ticker: t.clone(),
                     strategy: "volatility-harvesting".into(),
-                    qty: total as i32,
+                    qty: shares as i32,
                     timestamp: Utc::now(),
                 }
             })
@@ -194,11 +198,11 @@ pub struct Algorithm {
 }
 
 impl Algorithm {
-    pub fn new(cash: f64, batch_time: Duration) -> Self {
+    pub fn new(cash: f64, leverage: f64, batch_time: Duration) -> Self {
         let wakers = Arc::new(Mutex::new(Vec::new()));
         let outbox = Arc::new(Mutex::new(VecDeque::new()));
         let sender = Sender::new(Arc::clone(&wakers), Arc::clone(&outbox));
-        let receiver = Receiver::new(cash, wakers, outbox, batch_time);
+        let receiver = Receiver::new(cash, leverage, wakers, outbox, batch_time);
         Self { sender, receiver }
     }
 
