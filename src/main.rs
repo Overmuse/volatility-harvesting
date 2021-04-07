@@ -3,7 +3,10 @@ use dotenv::dotenv;
 use futures::prelude::*;
 use kafka_settings::{consumer, producer};
 use log::info;
-use rdkafka::{message::BorrowedMessage, producer::FutureRecord, Message};
+use rdkafka::{
+    consumer::Consumer, message::BorrowedMessage, producer::FutureRecord,
+    topic_partition_list::Offset, Message,
+};
 use std::time::Duration;
 use volatility_harvesting::{Algorithm, Settings};
 
@@ -31,11 +34,23 @@ async fn run_async_processor(settings: Settings) -> Result<()> {
 
     tokio::spawn(async move {
         let latch_message = async {
-            tokio::time::sleep(Duration::from_secs(10)).await;
+            tokio::time::sleep(Duration::from_secs(1000)).await;
             Ok(volatility_harvesting::Message::Latch)
         };
         tokio::pin!(latch_message);
         let latch_stream = futures::stream::once(latch_message);
+
+        // We need to poll the consumer before seeking to the end. I couldn't find a way to do that
+        // without specifically pulling one message, but since we're scrolling to the end anyway,
+        // it doesn't really matter that we lose this one message.
+        consumer.recv().await.unwrap();
+        // TODO: Remove the hardcoded partition range here
+        for partition in 0..=5 {
+            consumer
+                .seek("trades", partition, Offset::End, None)
+                .unwrap();
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
         let data_stream = consumer.stream().map(handle_message);
         let mut stream = futures::stream::select(latch_stream, data_stream);
         receiver
