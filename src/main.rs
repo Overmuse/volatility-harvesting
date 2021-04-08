@@ -34,7 +34,7 @@ async fn run_async_processor(settings: Settings) -> Result<()> {
 
     tokio::spawn(async move {
         let latch_message = async {
-            tokio::time::sleep(Duration::from_secs(1000)).await;
+            tokio::time::sleep(Duration::from_secs(10)).await;
             Ok(volatility_harvesting::Message::Latch)
         };
         tokio::pin!(latch_message);
@@ -50,7 +50,6 @@ async fn run_async_processor(settings: Settings) -> Result<()> {
                 .seek("trades", partition, Offset::End, None)
                 .unwrap();
         }
-        tokio::time::sleep(Duration::from_secs(1)).await;
         let data_stream = consumer.stream().map(handle_message);
         let mut stream = futures::stream::select(latch_stream, data_stream);
         receiver
