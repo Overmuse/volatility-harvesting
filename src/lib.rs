@@ -4,15 +4,56 @@ use core::pin::Pin;
 use futures::prelude::*;
 use futures::task::{Context, Poll, Waker};
 use log::{debug, info, trace};
-use polygon::ws::{PolygonMessage, Trade};
+use polygon::ws::{PolygonMessage, Trade, TradeCondition};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::{interval, Interval};
 
 mod settings;
 pub use settings::Settings;
+
+//const ELEGIBLE_CONDITIONS: [TradeCondition; 16] = [
+//    TradeCondition::RegularSale,
+//    TradeCondition::Acquisition,
+//    TradeCondition::AutomaticExecution,
+//    TradeCondition::BunchedTrade,
+//    TradeCondition::ClosingPrints,
+//    TradeCondition::CrossTrade,
+//    TradeCondition::Distribution,
+//    TradeCondition::IntermarketSweep,
+//    TradeCondition::Rule155Trade,
+//    TradeCondition::OpeningPrints,
+//    TradeCondition::StoppedStockRegularTrade,
+//    TradeCondition::ReopeningPrints,
+//    TradeCondition::SoldLast,
+//    TradeCondition::SplitTrade,
+//    TradeCondition::YellowFlagRegularTrade,
+//    TradeCondition::CorrectedConsolidatedClose,
+//];
+lazy_static::lazy_static! {
+    static ref ELEGIBLE_CONDITIONS: HashSet<TradeCondition> = {
+        let mut hash = HashSet::new();
+        hash.insert(TradeCondition::RegularSale);
+        hash.insert(TradeCondition::Acquisition);
+        hash.insert(TradeCondition::AutomaticExecution);
+        hash.insert(TradeCondition::BunchedTrade);
+        hash.insert(TradeCondition::ClosingPrints);
+        hash.insert(TradeCondition::CrossTrade);
+        hash.insert(TradeCondition::Distribution);
+        hash.insert(TradeCondition::IntermarketSweep);
+        hash.insert(TradeCondition::Rule155Trade);
+        hash.insert(TradeCondition::OpeningPrints);
+        hash.insert(TradeCondition::StoppedStockRegularTrade);
+        hash.insert(TradeCondition::ReopeningPrints);
+        hash.insert(TradeCondition::SoldLast);
+        hash.insert(TradeCondition::SplitTrade);
+        hash.insert(TradeCondition::YellowFlagRegularTrade);
+        hash.insert(TradeCondition::CorrectedConsolidatedClose);
+        hash
+    };
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -108,11 +149,10 @@ impl Sink<Message> for Receiver {
     }
 
     fn start_send(mut self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
-        debug!("Item received: {:?}", &item);
         match item {
             Message::Polygon(msg) => {
-                if let PolygonMessage::Trade(Trade { symbol, price, .. }) = msg {
-                    self.update_price(&symbol, price)
+                if let PolygonMessage::Trade(trade) = msg {
+                    self.update_price(trade)
                 }
             }
             Message::Latch => self.latch(),
@@ -156,14 +196,23 @@ impl Receiver {
         info!("Latching prices: {:?}", self.start_prices)
     }
 
-    fn update_price(&mut self, ticker: &str, price: f64) {
-        debug!("Price update. Ticker: {}, price: {}", &ticker, &price);
-        let prev = self.current_prices.insert(ticker.into(), price);
+    fn update_price(&mut self, trade: Trade) {
+        // Filter out any trades that don't have all-okay conditions
+        if !trade
+            .conditions
+            .iter()
+            .all(|c| ELEGIBLE_CONDITIONS.contains(c))
+        {
+            return;
+        }
+        let prev = self
+            .current_prices
+            .insert(trade.symbol.clone(), trade.price);
         if let Some(prev_price) = prev {
-            self.prev_prices.insert(ticker.into(), prev_price);
+            self.prev_prices.insert(trade.symbol.clone(), prev_price);
             if self.latched {
-                self.virtual_cash *= 1.0 + (price / prev_price - 1.0) / self.num_tickers() as f64;
-                debug!("Virtual cash: {}", self.virtual_cash);
+                self.virtual_cash *=
+                    1.0 + (trade.price / prev_price - 1.0) / self.num_tickers() as f64;
             }
         }
     }

@@ -701,8 +701,8 @@ checksum = "3831453b3449ceb48b6d9c7ad7c96d5ea673e9b470a1dc578c2ce6521230884c"
 
 [[package]]
 name = "polygon"
-version = "0.5.0"
-source = "git+ssh://git@github.com/Overmuse/polygon?tag=v0.5.0#f212a6f66c154c24099aab3c4deb541d9346f6d3"
+version = "0.5.1"
+source = "git+ssh://git@github.com/Overmuse/polygon?tag=v0.5.1#2b9e867fcb61aca13aa9691c9525ef9e9e5c7d7d"
 dependencies = [
  "chrono",
  "futures",
@@ -1309,7 +1309,7 @@ checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
 
 [[package]]
 name = "volatility-harvesting"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1318,6 +1318,7 @@ dependencies = [
  "env_logger",
  "futures",
  "kafka-settings",
+ "lazy_static",
  "log",
  "polygon",
  "rand 0.7.3",
