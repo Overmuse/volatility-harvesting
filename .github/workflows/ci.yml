@@ -6,14 +6,12 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'Dockerfile'
-      - 'deployment.yml'
       - 'src/**'  
   pull_request:
     paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'Dockerfile'
-      - 'deployment.yml'
       - 'src/**'  
 
 name: Continuous integration
