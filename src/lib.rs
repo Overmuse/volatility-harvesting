@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use core::pin::Pin;
 use futures::prelude::*;
 use futures::task::{Context, Poll, Waker};
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
 use polygon::ws::{PolygonMessage, Trade, TradeCondition};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet, VecDeque};
@@ -14,24 +14,6 @@ use tokio::time::{interval, Interval};
 mod settings;
 pub use settings::Settings;
 
-//const ELEGIBLE_CONDITIONS: [TradeCondition; 16] = [
-//    TradeCondition::RegularSale,
-//    TradeCondition::Acquisition,
-//    TradeCondition::AutomaticExecution,
-//    TradeCondition::BunchedTrade,
-//    TradeCondition::ClosingPrints,
-//    TradeCondition::CrossTrade,
-//    TradeCondition::Distribution,
-//    TradeCondition::IntermarketSweep,
-//    TradeCondition::Rule155Trade,
-//    TradeCondition::OpeningPrints,
-//    TradeCondition::StoppedStockRegularTrade,
-//    TradeCondition::ReopeningPrints,
-//    TradeCondition::SoldLast,
-//    TradeCondition::SplitTrade,
-//    TradeCondition::YellowFlagRegularTrade,
-//    TradeCondition::CorrectedConsolidatedClose,
-//];
 lazy_static::lazy_static! {
     static ref ELEGIBLE_CONDITIONS: HashSet<TradeCondition> = {
         let mut hash = HashSet::new();
@@ -55,11 +37,21 @@ lazy_static::lazy_static! {
     };
 }
 
+// TODO: Define this struct in some shared schema registry
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum State {
+    Open { next_close: usize },
+    Closed { next_open: usize },
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Message {
     Polygon(PolygonMessage),
+    State(State),
     Latch,
+    Unlatch,
 }
 
 // TODO: Define this struct in some shared schema registry
@@ -156,6 +148,20 @@ impl Sink<Message> for Receiver {
                 }
             }
             Message::Latch => self.latch(),
+            Message::Unlatch => self.unlatch(),
+            Message::State(state) => match (self.latched, state) {
+                (true, State::Open { next_close }) => {
+                    if next_close < 600 {
+                        self.unlatch()
+                    }
+                }
+                (false, State::Open { .. }) => self.latch(),
+                (true, State::Closed { .. }) => {
+                    warn!("Market closed before unlatching");
+                    self.unlatch()
+                }
+                _ => (),
+            },
         }
         Ok(())
     }
@@ -196,23 +202,29 @@ impl Receiver {
         info!("Latching prices: {:?}", self.start_prices)
     }
 
+    fn unlatch(&mut self) {
+        self.start_prices.clear();
+        self.latched = false;
+        self.starting_cash = self.virtual_cash;
+        info!("Unlatching prices")
+    }
+
     fn update_price(&mut self, trade: Trade) {
         // Filter out any trades that don't have all-okay conditions
-        if !trade
+        if trade
             .conditions
             .iter()
             .all(|c| ELEGIBLE_CONDITIONS.contains(c))
         {
-            return;
-        }
-        let prev = self
-            .current_prices
-            .insert(trade.symbol.clone(), trade.price);
-        if let Some(prev_price) = prev {
-            self.prev_prices.insert(trade.symbol.clone(), prev_price);
-            if self.latched {
-                self.virtual_cash *=
-                    1.0 + (trade.price / prev_price - 1.0) / self.num_tickers() as f64;
+            let prev = self
+                .current_prices
+                .insert(trade.symbol.clone(), trade.price);
+            if let Some(prev_price) = prev {
+                self.prev_prices.insert(trade.symbol.clone(), prev_price);
+                if self.latched {
+                    self.virtual_cash *=
+                        1.0 + (trade.price / prev_price - 1.0) / self.num_tickers() as f64;
+                }
             }
         }
     }
