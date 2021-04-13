@@ -33,13 +33,6 @@ async fn run_async_processor(settings: Settings) -> Result<()> {
     let (sender, mut receiver) = algo.split();
 
     tokio::spawn(async move {
-        let latch_message = async {
-            tokio::time::sleep(Duration::from_secs(10)).await;
-            Ok(volatility_harvesting::Message::Latch)
-        };
-        tokio::pin!(latch_message);
-        let latch_stream = futures::stream::once(latch_message);
-
         // We need to poll the consumer before seeking to the end. I couldn't find a way to do that
         // without specifically pulling one message, but since we're scrolling to the end anyway,
         // it doesn't really matter that we lose this one message.
@@ -50,10 +43,9 @@ async fn run_async_processor(settings: Settings) -> Result<()> {
                 .seek("trades", partition, Offset::End, None)
                 .unwrap();
         }
-        let data_stream = consumer.stream().map(handle_message);
-        let mut stream = futures::stream::select(latch_stream, data_stream);
+        let mut data_stream = consumer.stream().map(handle_message);
         receiver
-            .send_all(&mut stream)
+            .send_all(&mut data_stream)
             .await
             .expect("Failed to send message");
     });
