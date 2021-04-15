@@ -20,6 +20,7 @@ jobs:
       - name: Set tag env variable
         run: echo IMAGE_TAG=v${{steps.read_toml.outputs.package_version}} >> $GITHUB_ENV
       - uses: ncipollo/release-action@v1
+        continue-on-error: true
         with:
           allowUpdates: false
           tag: ${{ env.IMAGE_TAG }}
