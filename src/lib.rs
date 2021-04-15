@@ -155,7 +155,11 @@ impl Sink<Message> for Receiver {
                         self.unlatch()
                     }
                 }
-                (false, State::Open { .. }) => self.latch(),
+                (false, State::Open { next_close }) => {
+                    if next_close > 600 {
+                        self.latch()
+                    }
+                }
                 (true, State::Closed { .. }) => {
                     warn!("Market closed before unlatching");
                     self.unlatch()
