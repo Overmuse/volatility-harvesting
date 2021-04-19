@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::{interval, Interval};
+use uuid::Uuid;
 
 mod settings;
 pub use settings::Settings;
@@ -57,6 +58,7 @@ pub enum Message {
 // TODO: Define this struct in some shared schema registry
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PositionIntent {
+    pub id: Uuid,
     pub strategy: String,
     pub timestamp: DateTime<Utc>,
     pub ticker: String,
@@ -248,6 +250,7 @@ impl Receiver {
                 let shares = self.leverage * total / *p as f64;
                 debug!("Ticker: {}. Total desired: {}", t, total);
                 PositionIntent {
+                    id: Uuid::new_v4(),
                     ticker: t.clone(),
                     strategy: "volatility-harvesting".into(),
                     qty: shares as i32,
