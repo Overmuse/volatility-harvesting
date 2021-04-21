@@ -5,6 +5,7 @@ use futures::prelude::*;
 use futures::task::{Context, Poll, Waker};
 use log::{debug, info, trace, warn};
 use polygon::ws::{PolygonMessage, Trade, TradeCondition};
+use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -100,13 +101,13 @@ impl Stream for Sender {
 }
 
 pub struct Receiver {
-    starting_cash: f64,
-    virtual_cash: f64,
-    leverage: f64,
+    starting_cash: Decimal,
+    virtual_cash: Decimal,
+    leverage: Decimal,
     latched: bool,
-    start_prices: BTreeMap<String, f64>,
-    prev_prices: BTreeMap<String, f64>,
-    current_prices: BTreeMap<String, f64>,
+    start_prices: BTreeMap<String, Decimal>,
+    prev_prices: BTreeMap<String, Decimal>,
+    current_prices: BTreeMap<String, Decimal>,
     wakers: Arc<Mutex<Vec<Option<Waker>>>>,
     sender_outbox: Arc<Mutex<VecDeque<PositionIntent>>>,
     interval: Interval,
@@ -114,8 +115,8 @@ pub struct Receiver {
 
 impl Receiver {
     fn new(
-        starting_cash: f64,
-        leverage: f64,
+        starting_cash: Decimal,
+        leverage: Decimal,
         wakers: Arc<Mutex<Vec<Option<Waker>>>>,
         sender_outbox: Arc<Mutex<VecDeque<PositionIntent>>>,
         batch_time: Duration,
@@ -228,15 +229,15 @@ impl Receiver {
             if let Some(prev_price) = prev {
                 self.prev_prices.insert(trade.symbol.clone(), prev_price);
                 if self.latched {
-                    self.virtual_cash *=
-                        1.0 + (trade.price / prev_price - 1.0) / self.num_tickers() as f64;
+                    self.virtual_cash *= Decimal::one()
+                        + (trade.price / prev_price - Decimal::one()) / self.num_tickers();
                 }
             }
         }
     }
 
-    fn num_tickers(&self) -> usize {
-        self.current_prices.len()
+    fn num_tickers(&self) -> Decimal {
+        Decimal::new(self.current_prices.len() as i64, 0)
     }
 
     fn desired_positions(&self) -> Vec<PositionIntent> {
@@ -245,15 +246,18 @@ impl Receiver {
             .iter()
             .map(move |(t, p)| {
                 let p0 = self.start_prices.get(t).unwrap_or(p);
-                let total = self.virtual_cash / num_tickers as f64
-                    - (p * self.starting_cash) / (p0 * num_tickers as f64);
-                let shares = self.leverage * total / *p as f64;
+                let total =
+                    self.virtual_cash / num_tickers - (p * self.starting_cash) / (p0 * num_tickers);
+                let shares = self.leverage * total / *p;
                 debug!("Ticker: {}. Total desired: {}", t, total);
                 PositionIntent {
                     id: Uuid::new_v4(),
                     ticker: t.clone(),
                     strategy: "volatility-harvesting".into(),
-                    qty: shares as i32,
+                    qty: shares
+                        .trunc()
+                        .to_i32()
+                        .expect("Conversion should always work"),
                     timestamp: Utc::now(),
                 }
             })
@@ -266,7 +270,7 @@ pub struct Algorithm {
 }
 
 impl Algorithm {
-    pub fn new(cash: f64, leverage: f64, batch_time: Duration) -> Self {
+    pub fn new(cash: Decimal, leverage: Decimal, batch_time: Duration) -> Self {
         let wakers = Arc::new(Mutex::new(Vec::new()));
         let outbox = Arc::new(Mutex::new(VecDeque::new()));
         let sender = Sender::new(Arc::clone(&wakers), Arc::clone(&outbox));
