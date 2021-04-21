@@ -16,9 +16,10 @@ futures = "0.3.0"
 kafka-settings = { git = "ssh://git@github.com/Overmuse/kafka-settings", tag = "v0.2.2" } 
 lazy_static = "1.4.0"
 log = "0.4.8"
-polygon = {git = "ssh://git@github.com/Overmuse/polygon", tag = "v0.5.1", default-features = false, features = ["ws"]}
+polygon = {git = "ssh://git@github.com/Overmuse/polygon", tag = "v0.6.0", default-features = false, features = ["ws"]}
 rand = "0.7.3"
 rdkafka = { version = "0.26", features = ["ssl-vendored"] }
+rust_decimal = "1.11.1"
 serde = "1.0"
 serde_json = "1.0.55"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "time"] }
