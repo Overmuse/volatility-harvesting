@@ -24,4 +24,4 @@ jobs:
         with:
           allowUpdates: false
           tag: ${{ env.IMAGE_TAG }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_TOKEN }}
