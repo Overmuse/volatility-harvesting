@@ -1,4 +1,4 @@
-FROM rust as planner
+FROM rust:1.54 as planner
 WORKDIR volatility-harvesting
 # We only pay the installation cost once, 
 # it will be cached from the second build onwards
@@ -10,13 +10,13 @@ COPY . .
 
 RUN cargo chef prepare  --recipe-path recipe.json
 
-FROM rust as cacher
+FROM rust:1.54 as cacher
 WORKDIR volatility-harvesting
 RUN cargo install cargo-chef
 COPY --from=planner /volatility-harvesting/recipe.json recipe.json
 RUN --mount=type=ssh cargo chef cook --release --recipe-path recipe.json
 
-FROM rust as builder
+FROM rust:1.54 as builder
 WORKDIR volatility-harvesting
 COPY . .
 # Copy over the cached dependencies
